@@ -1,3 +1,4 @@
 .idea/
 __pycache__/
 6869_final_project_venv/
+wandb/
