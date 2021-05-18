@@ -41,6 +41,8 @@ def read_all_images_and_labels(data_working_dir):
 
         # get all unique takedirs
         for take_dir in take_dirs:
+            if not "take" in take_dir:
+                continue
             print(f"Appending take.. {date_dir}-{take_dir}")
 
             take_dir_fp = f"{data_working_dir}/{date_dir}/{take_dir}"
