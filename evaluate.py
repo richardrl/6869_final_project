@@ -38,7 +38,7 @@ def evaluate(checkpoint_dir, data_working_dir):
                        test=test_dataloader)
 
     for phase in ['train', 'val', 'test']:
-        tq_obj = tqdm.tqdm(dataloaders['test'])
+        tq_obj = tqdm.tqdm(dataloaders[phase])
         model.eval()  # Set model to evaluate mode
 
         total_samples = len(tq_obj)
