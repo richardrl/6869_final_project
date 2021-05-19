@@ -7,13 +7,14 @@ import cv2
 
 
 class HSAFingertipDataset(Dataset):
-    def __init__(self, data_dir, opencv_preprocessing=False, transform=None):
+    def __init__(self, data_dir, opencv_preprocessing=False, transform=None, vertically_stack_images=True):
         self.data_dir = data_dir
 
         # pandas dataframe containing filelists, dates, and takes
         self.data_df = read_all_images_and_labels(data_dir)
         self.transform = transform
         self.opencv_preprocessing = opencv_preprocessing
+        self.vertically_stack_images = vertically_stack_images
 
     def __len__(self):
         # returns number of rows in dataframe
@@ -35,8 +36,7 @@ class HSAFingertipDataset(Dataset):
             opencv_image = (opencv_image / np.max(opencv_image) * 255).astype(np.uint8)
             image = Image.fromarray(opencv_image)
 
-        if self.transform:
-            # Vertically stack images
+        if self.vertically_stack_images:
             img_left_area = (0, 0, 480, 360)
             img_right_area = (480, 0, 960, 360)
             img_left = image.crop(img_left_area)
@@ -45,6 +45,7 @@ class HSAFingertipDataset(Dataset):
             image.paste(img_left, (0, 0))
             image.paste(img_right, (0, 360))
 
+        if self.transform:
             image = self.transform(image)
 
         image = np.array(image)
