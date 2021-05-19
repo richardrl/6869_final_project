@@ -1,5 +1,6 @@
 from __future__ import print_function, division
 import numpy as np
+import tqdm
 from torch.utils.data import Dataset
 from PIL import Image
 from vid_util import read_all_images_and_labels
@@ -46,7 +47,10 @@ class HSAFingertipDataset(Dataset):
             image.paste(img_right, (0, 360))
 
         if self.transform:
+            # print("ln50")
+            # print(image.size)
             image = self.transform(image)
+            # print(image.shape)
 
         image = np.array(image)
 
@@ -62,3 +66,32 @@ class HSAFingertipDataset(Dataset):
         return dict(image=image,
                     label=label)
 
+
+def calculate_image_population_stats(dataset):
+    from torch.utils.data import DataLoader
+    import torch
+    dl = DataLoader(dataset, batch_size=128,
+               shuffle=True, num_workers=8)
+
+    # not complete, seems too slow
+    running_sum = torch.zeros(3)
+    total_pixels = 0
+    for sample_idx, batch in tqdm.tqdm(enumerate(dl)):
+        assert batch['image'].shape[1] == 3, batch['image'].shape
+        # [batch_size, c, h, w]
+        channel_pixel_sum = batch['image'].sum((0, 2, 3))
+
+        running_sum += channel_pixel_sum
+        total_pixels += batch['image'].shape[0] * batch['image'].shape[2] * batch['image'].shape[3]
+
+    mean = running_sum/total_pixels
+
+    sum2 = torch.zeros(3)
+    for sample_idx, batch in tqdm.tqdm(enumerate(dl)):
+        # [batch_size, c, h, w] -> [batch_size, h, w, c == 3]
+        sum2 += torch.sum((batch['image'].permute(0, 2, 3, 1).reshape(-1, 3) - mean)**2, dim=0)
+
+    variance = sum2/(total_pixels- 1)
+    print(f"mean: {mean}")
+    print(f"variance: {variance}")
+    return mean, variance
