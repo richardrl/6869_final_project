@@ -27,12 +27,17 @@ def evaluate(checkpoint_dir, data_working_dir):
     train_d, val_d, test_d = random_split(dataset, [train_len, val_len, len(dataset) - train_len - val_len],
                                           generator=torch.Generator().manual_seed(0))
 
+    datasets = dict(train=train_d,
+                    val=val_d,
+                    test=test_d)
+
     train_dataloader = DataLoader(train_d, batch_size=args.batch_size,
                                   shuffle=True, num_workers=0)
     val_dataloader = DataLoader(val_d, batch_size=args.batch_size,
                                 shuffle=True, num_workers=0)
     test_dataloader = DataLoader(test_d, batch_size=args.batch_size,
                                  shuffle=True, num_workers=0)
+
     dataloaders = dict(train=train_dataloader,
                        val=val_dataloader,
                        test=test_dataloader)
@@ -41,7 +46,7 @@ def evaluate(checkpoint_dir, data_working_dir):
         tq_obj = tqdm.tqdm(dataloaders[phase])
         model.eval()  # Set model to evaluate mode
 
-        total_samples = len(tq_obj)
+        total_samples = len(datasets[phase])
         total_sum_vec = np.array([0., 0., 0.])[None, :]
 
         for batch_idx, sample_batched in enumerate(tq_obj):
@@ -52,9 +57,10 @@ def evaluate(checkpoint_dir, data_working_dir):
 
             assert input_.shape == target.shape
 
-            loss = F.mse_loss(input_, target, reduction='mean')
+            loss = F.mse_loss(input_, target, reduction='none')
 
             summed_loss = loss.data.cpu().numpy().sum(axis=0)
+
             total_sum_vec += summed_loss
             tq_obj.set_description(f"{phase} loss {summed_loss}")
 
