@@ -6,10 +6,13 @@ from dataset import HSAFingertipDataset
 import torchvision
 import tqdm
 import argparse
+import numpy as np
 
 import torch.nn.functional as F
 
 DEVICE = torch.device("cuda:1")
+
+
 def evaluate(checkpoint_dir, data_working_dir):
     # load model
     model = SimpleCNN().to(DEVICE)
@@ -34,18 +37,28 @@ def evaluate(checkpoint_dir, data_working_dir):
                        val=val_dataloader,
                        test=test_dataloader)
 
-    tq_obj = tqdm.tqdm(dataloaders['test'])
-    model.eval()  # Set model to evaluate mode
-    for batch_idx, sample_batched in enumerate(tq_obj):
-        position_predictions = model(sample_batched['image'].to(DEVICE))
+    for phase in ['train', 'val', 'test']:
+        tq_obj = tqdm.tqdm(dataloaders['test'])
+        model.eval()  # Set model to evaluate mode
 
-        input_ = position_predictions
-        target = sample_batched['label']['pos'].float().to(DEVICE)
+        total_samples = len(tq_obj)
+        total_sum_vec = np.array([0., 0., 0.])[None, :]
 
-        assert input_.shape == target.shape
+        for batch_idx, sample_batched in enumerate(tq_obj):
+            position_predictions = model(sample_batched['image'].to(DEVICE))
 
-        loss = F.mse_loss(input_, target, reduction='mean')
-        tq_obj.set_description(f"Test loss {loss}")
+            input_ = position_predictions
+            target = sample_batched['label']['pos'].float().to(DEVICE)
+
+            assert input_.shape == target.shape
+
+            loss = F.mse_loss(input_, target, reduction='mean')
+
+            summed_loss = loss.data.cpu().numpy().sum(axis=0)
+            total_sum_vec += summed_loss
+            tq_obj.set_description(f"{phase} loss {summed_loss}")
+
+        print(f"{phase} loss aggregate {total_sum_vec / total_samples}")
 
 
 if __name__ == "__main__":
@@ -55,5 +68,5 @@ if __name__ == "__main__":
     parser.add_argument('--num_epochs', type=int, default=50)
     parser.add_argument('--checkpoint_freq', type=int, help="Checkpoint frequency in epochs", default=10)
     args = parser.parse_args()
-    data_working_dir = "/home/richard/Dropbox (MIT)/6.869 Project/data"
+    data_working_dir = "/home/richard/data/hsa_data"
     evaluate(args.checkpoint_dir, data_working_dir)

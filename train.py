@@ -16,9 +16,9 @@ DEVICE = torch.device("cuda:1")
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--batch_size', type=int, default=32)
-parser.add_argument('--num_epochs', type=int, default=50)
-parser.add_argument('--checkpoint_freq', type=int, help="Checkpoint frequency in epochs", default=1)
+parser.add_argument('--batch_size', type=int, default=128)
+parser.add_argument('--num_epochs', type=int, default=100)
+parser.add_argument('--checkpoint_freq', type=int, help="Checkpoint frequency in epochs", default=10)
 args = parser.parse_args()
 pd.set_option('display.max_colwidth', None)
 
@@ -45,7 +45,8 @@ model = SimpleCNN()
 model = model.to(DEVICE)
 
 optimizer = torch.optim.Adam(model.parameters())
-wandb.init(project="6869_final_project")
+wandb.init(project="richards_runs",
+           entity="6869_final_project_team")
 
 # this is where you log hyperparameters
 # for now, just make sure the git ID and string of the model class are logged
@@ -83,10 +84,11 @@ for epoch in range(args.num_epochs):
             if phase == 'train':
                 loss.backward()
                 optimizer.step()
+
+        wandb.log({f"{phase} loss": loss})
         print(f"ln62: {phase} loss {loss}")
         print("\n")
 
     if epoch % args.checkpoint_freq == 0:
         torch.save(model.state_dict(), os.path.join(wandb.run.dir, f"checkpoint{epoch}"))
 
-    wandb.log(dict(loss=loss))
