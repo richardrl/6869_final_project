@@ -7,23 +7,39 @@ class SimpleCNN(nn.Module):
     def __init__(self, batchnorm=False):
         super().__init__()
         self.conv1 = nn.Conv2d(3, 6, 5)
+        self.bn1 = nn.BatchNorm2d(6)
         self.pool = nn.MaxPool2d(2, 2)
         self.conv2 = nn.Conv2d(6, 6, 5)
+        self.bn2 = nn.BatchNorm2d(6)
         self.conv3 = nn.Conv2d(6, 1, 1)
+        self.bn3 = nn.BatchNorm2d(1)
         self.fc_out1 = nn.Linear(26*26, 512)
         self.fc_out2 = nn.Linear(512, 3)
+        self.batchnorm = batchnorm
 
     def forward(self, x):
         batch_dim = x.shape[0]
 
         # [16, 3, 224, 224] -> [16, 6, 220, 220] -> [16, 6, 110, 110]
-        x = self.pool(torch.relu(self.conv1(x)))
+        x = self.conv1(x)
+        if self.batchnorm:
+            x = self.bn1(x)
 
+        x = self.pool(torch.relu(x))
+
+        x=self.conv2(x)
+
+        if self.batchnorm:
+            x = self.bn2(x)
         # -> [16, 6, 53, 53]
-        x = self.pool(torch.relu(self.conv2(x)))
+        x = self.pool(torch.relu(x))
 
+        x=self.conv3(x)
+
+        if self.batchnorm:
+            x = self.bn3(x)
         # -> [16, 1, 55, 55] -> [16, 26, 26]
-        x = self.pool(torch.relu(self.conv3(x)))
+        x = self.pool(torch.relu(x))
 
         # -> [16, 26*26] -> [16, 512]
         x = self.fc_out1(x.reshape(batch_dim, 26*26))

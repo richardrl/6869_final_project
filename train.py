@@ -1,8 +1,8 @@
 import pandas as pd
-import torch.optim.optimizer
 import subprocess
+
+import misc_util
 from dataset import HSAFingertipDataset, calculate_image_population_stats
-import torchvision
 from torch.utils.data import DataLoader, random_split
 import wandb
 from models.simple_cnn import *
@@ -11,63 +11,45 @@ import os
 import tqdm
 import argparse
 import numpy as np
+from misc_util import *
 
 
-DEVICE = torch.device("cuda:1")
 
 
 
 parser = argparse.ArgumentParser()
+parser.add_argument('data_dir', type=str)
+parser.add_argument('device', type=int)
 parser.add_argument('--batch_size', type=int, default=128)
 parser.add_argument('--num_epochs', type=int, default=100)
 parser.add_argument('--num_workers', type=int, default=8)
 parser.add_argument('--checkpoint_freq', type=int, help="Checkpoint frequency in epochs", default=10)
 parser.add_argument('--trans_str', type=str, default="r")
+parser.add_argument('--model_str', type=str, default="scnn")
 parser.add_argument('--calculate_stats', action='store_true')
+parser.add_argument('--split_based_on_takes', action='store_true')
 
 args = parser.parse_args()
 pd.set_option('display.max_colwidth', None)
 
+DEVICE = torch.device(f"cuda:{args.device}")
 
-def get_transform(trans_str):
-    if trans_str == "r":
-        return torchvision.transforms.Compose([torchvision.transforms.Resize((224, 224)),
-                                               torchvision.transforms.ToTensor()])
-    elif trans_str == "rn":
-        return torchvision.transforms.Compose([torchvision.transforms.Resize((224, 224)),
-                                               torchvision.transforms.ToTensor(),
-                                               torchvision.transforms.Normalize([0.4047, 0.3870, 0.5299],
-                                                                                [0.0110**(1/2), 0.0096**(1/2), 0.0165**(1/2)])])
-    elif trans_str == "rl":
-        return torchvision.transforms.Compose([torchvision.transforms.Resize((224, 224)),
-                                               torchvision.transforms.ColorJitter(brightness=.1, contrast=.1, saturation=.1),
-                                               torchvision.transforms.ToTensor()])
-    elif trans_str == "rln":
-        raise NotImplementedError
-        return torchvision.transforms.Compose([torchvision.transforms.Resize((224, 224)),
-                                               torchvision.transforms.ColorJitter(brightness=.1, contrast=.1, saturation=.1),
-                                               torchvision.transforms.ToTensor(),
-                                               torchvision.transforms.Normalize])
-    else:
-        raise NotImplementedError
-
-def get_model(model_str):
-    if model_str == "scnn":
-        return SimpleCNN
-    elif model_str == "scnn5":
-        return SimpleCNN5Conv
-
-data_working_dir = "/home/richard/data/hsa_data"
+data_working_dir = args.data_dir
 # TODO apply transforms
-dataset = HSAFingertipDataset(data_working_dir, transform=get_transform(args.trans_str))
+cj_kwargs = dict(cj_coeff=.4)
+dataset = HSAFingertipDataset(data_working_dir, transform=get_transform(args.trans_str, cj_kwargs))
 
 if args.calculate_stats:
     mean, variance = calculate_image_population_stats(dataset)
 
 train_len = int(len(dataset)*.6)
 val_len = int(len(dataset)*.2)
-train_d, val_d, test_d = random_split(dataset, [train_len, val_len, len(dataset) - train_len - val_len],
-                                      generator=torch.Generator().manual_seed(0))
+
+if args.split_based_on_takes:
+    train_d, val_d, test_d = misc_util.split_datasets_based_on_takes(dataset, [.6, .2, .2], seed=0)
+else:
+    train_d, val_d, test_d = random_split(dataset, [train_len, val_len, len(dataset) - train_len - val_len],
+                                          generator=torch.Generator().manual_seed(0))
 datasets = dict(train=train_d,
                 val=val_d,
                 test=test_d)
@@ -83,7 +65,7 @@ dataloaders = dict(train=train_dataloader,
                    test=test_dataloader)
 
 model_kwargs = dict(batchnorm=True)
-model = SimpleCNN5Conv()
+model = get_model(args.model_str)(**model_kwargs)
 model = model.to(DEVICE)
 
 optimizer = torch.optim.Adam(model.parameters())
@@ -98,12 +80,16 @@ wandb.init(project="richards_runs",
 git_hash = subprocess.check_output(['git', 'rev-parse', 'HEAD']).decode(("utf-8")).split("\n")[0]
 
 wandb.config['git_id'] = git_hash
-wandb.config['model_class'] = model.__module__ + model.__class__.__name__
-wandb.config['optimizer'] = optimizer.__module__ + optimizer.__class__.__name__
+wandb.config['model_class'] = model.__module__ + "." + model.__class__.__name__
+wandb.config['optimizer'] = optimizer.__module__ + "." + optimizer.__class__.__name__
 wandb.config['trans_str'] = args.trans_str
 wandb.config['model_kwargs'] = model_kwargs
+wandb.config['split_based_on_takes'] = args.split_based_on_takes
+wandb.config['cj_kwargs'] = cj_kwargs
 
 wandb.save(os.path.join(wandb.run.dir, "checkpoint*"))
+
+best_val_loss = float("inf")
 
 for epoch in range(args.num_epochs):
     print(f"wandb log directory name {wandb.run.dir}")
@@ -142,13 +128,19 @@ for epoch in range(args.num_epochs):
                 optimizer.step()
 
 
-        wandb.log({f"{phase} aggregate X loss": total_sum_vec[0][0].squeeze() / total_samples})
-        wandb.log({f"{phase} aggregate Y loss": total_sum_vec[0][1].squeeze() / total_samples})
-        wandb.log({f"{phase} aggregate Z loss": total_sum_vec[0][2].squeeze() / total_samples})
+        wandb.log({f"{phase} aggregate X loss": total_sum_vec[0][0].squeeze() / total_samples}, step=epoch)
+        wandb.log({f"{phase} aggregate Y loss": total_sum_vec[0][1].squeeze() / total_samples}, step=epoch)
+        wandb.log({f"{phase} aggregate Z loss": total_sum_vec[0][2].squeeze() / total_samples}, step=epoch)
+
+        if phase == "val":
+            current_val_loss = total_sum_vec[0][1].squeeze() / total_samples
+            if best_val_loss > current_val_loss and epoch > 10:
+                best_val_loss = current_val_loss
+                torch.save(model.state_dict(), os.path.join(wandb.run.dir, f"checkpoint{epoch}"))
 
         print(f"ln62: {phase} aggregate loss {total_sum_vec / total_samples}")
         print("\n")
 
     if epoch % args.checkpoint_freq == 0:
         torch.save(model.state_dict(), os.path.join(wandb.run.dir, f"checkpoint{epoch}"))
-
+    wandb.log({f"epoch": epoch}, step=epoch)
